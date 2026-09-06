@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 installLogoAspectRatioFix()
+                installDefaultBrandLogos()
             }
         }
         web.loadUrl("file:///android_asset/index.html")
@@ -113,6 +114,51 @@ class MainActivity : AppCompatActivity() {
             });
             input.__trentLogoListener=true;
           }
+        })();
+        """.trimIndent()
+        web.evaluateJavascript(js, null)
+    }
+
+    private fun installDefaultBrandLogos() {
+        val js = """
+        (function(){
+          const input=document.getElementById('logoInput');
+          if(!input || input.__trentBrandSelectorInstalled) return;
+          input.__trentBrandSelectorInstalled=true;
+          const wrap=input.parentElement;
+          if(!wrap) return;
+          const label=wrap.querySelector('label');
+          const select=document.createElement('select');
+          select.id='defaultBrandLogo';
+          select.innerHTML='<option value="">Custom logo / none</option><option value="westside">Westside</option><option value="burnt-toast">Burnt Toast</option><option value="zudio">Zudio</option>';
+          select.style.marginBottom='9px';
+          if(label) wrap.insertBefore(select,label.nextSibling); else wrap.insertBefore(select,input);
+          const note=document.createElement('div');
+          note.textContent='Choose a default brand logo or use the custom upload below.';
+          note.style.cssText='font-size:10px;color:#69727d;margin:-3px 0 8px;line-height:1.4';
+          wrap.insertBefore(note,input);
+          async function setLogo(path,name){
+            try{
+              const res=await fetch(path);
+              const text=await res.text();
+              const file=new File([text],name+'.svg',{type:'image/svg+xml'});
+              const dt=new DataTransfer();
+              dt.items.add(file);
+              input.files=dt.files;
+              input.dispatchEvent(new Event('change',{bubbles:true}));
+            }catch(e){ console.warn('Brand logo load failed',e); }
+          }
+          select.addEventListener('change',function(){
+            const v=select.value;
+            if(!v){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; return; }
+            setLogo('file:///android_asset/branding/'+v+'.svg',v);
+          });
+          input.addEventListener('change',function(){
+            if(input.files && input.files.length) {
+              const f=input.files[0];
+              if(f.name!=='westside.svg' && f.name!=='burnt-toast.svg' && f.name!=='zudio.svg') select.value='';
+            }
+          });
         })();
         """.trimIndent()
         web.evaluateJavascript(js, null)
@@ -198,4 +244,3 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
-
