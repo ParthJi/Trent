@@ -48,9 +48,7 @@ class MainActivity : AppCompatActivity() {
                             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                         }
-                    } else {
-                        params.createIntent()
-                    }
+                    } else params.createIntent()
                     startActivityForResult(intent, REQ)
                     true
                 } catch (_: Exception) {
@@ -66,8 +64,58 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 return !(request.url.scheme == "http" || request.url.scheme == "https")
             }
+            override fun onPageFinished(view: WebView, url: String) {
+                super.onPageFinished(view, url)
+                installLogoAspectRatioFix()
+            }
         }
         web.loadUrl("file:///android_asset/index.html")
+    }
+
+    private fun installLogoAspectRatioFix() {
+        val js = """
+        (function(){
+          function wrapSlide(slide){
+            if(!slide || slide.__trentLogoWrapped) return slide;
+            const originalAddImage=slide.addImage;
+            if(typeof originalAddImage!==\"function\") return slide;
+            slide.addImage=function(opts){
+              try{
+                if(window.__trentLogoData && opts && opts.data===window.__trentLogoData && window.__trentLogoRatio){
+                  const bw=Number(opts.w)||1, bh=Number(opts.h)||1, boxRatio=bw/bh, r=window.__trentLogoRatio;
+                  let w,h;
+                  if(r>boxRatio){ w=bw; h=bw/r; } else { h=bh; w=bh*r; }
+                  opts=Object.assign({},opts,{x:Number(opts.x||0)+(bw-w)/2,y:Number(opts.y||0)+(bh-h)/2,w:w,h:h});
+                }
+              }catch(e){}
+              return originalAddImage.call(this,opts);
+            };
+            slide.__trentLogoWrapped=true;
+            return slide;
+          }
+          if(window.PptxGenJS && !window.__trentPptPatched){
+            const originalAddSlide=window.PptxGenJS.prototype.addSlide;
+            window.PptxGenJS.prototype.addSlide=function(){ return wrapSlide(originalAddSlide.apply(this,arguments)); };
+            window.__trentPptPatched=true;
+          }
+          const input=document.getElementById(\"logoInput\");
+          if(input && !input.__trentLogoListener){
+            input.addEventListener(\"change\",function(e){
+              const f=e.target.files && e.target.files[0]; if(!f) return;
+              const reader=new FileReader();
+              reader.onload=function(){
+                window.__trentLogoData=reader.result;
+                const im=new Image();
+                im.onload=function(){ if(im.naturalWidth && im.naturalHeight) window.__trentLogoRatio=im.naturalWidth/im.naturalHeight; };
+                im.src=reader.result;
+              };
+              reader.readAsDataURL(f);
+            });
+            input.__trentLogoListener=true;
+          }
+        })();
+        """.trimIndent()
+        web.evaluateJavascript(js, null)
     }
 
     private fun requestRuntimePermissions() {
