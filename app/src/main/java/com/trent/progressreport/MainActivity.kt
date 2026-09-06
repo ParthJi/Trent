@@ -146,46 +146,49 @@ class MainActivity : AppCompatActivity() {
     private fun installDefaultBrandLogos() {
         val js = """
             (function(){
-              if(window.__trentDefaultLogoSelectorInstalled)return;
-              window.__trentDefaultLogoSelectorInstalled=true;
+              if(window.__trentBrandSelectorInstalled)return;
+              window.__trentBrandSelectorInstalled=true;
               var input=document.getElementById('logoInput');
               if(!input)return;
-              var parent=input.parentElement;
-              var select=document.createElement('select');
-              select.id='trentDefaultLogo';
-              select.innerHTML='<option value="">Custom logo / none</option><option value="westside.jpg">Westside</option><option value="burnt-toast.png">Burnt Toast</option><option value="zudio.png">Zudio</option>';
-              parent.insertBefore(select,input);
-              var note=document.createElement('div');
-              note.textContent='Choose a default brand image or use the custom upload below.';
-              note.style.margin='6px 0';
-              note.style.fontSize='12px';
-              parent.insertBefore(note,input);
-              select.onchange=async function(){
-                var value=this.value;
-                if(!value){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; try{logo='';}catch(e){} return; }
+              var brandingCard=input.closest('.card');
+              if(brandingCard)brandingCard.remove();
+              var exportCard=document.getElementById('ppt')?.closest('.card');
+              if(!exportCard)return;
+
+              var card=document.createElement('section');
+              card.className='card';
+              card.innerHTML='<div class="section-title"><strong>Selected brands</strong><span class="mono small">04</span></div>'+
+                '<div class="grid">'+
+                '<label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0"><input type="checkbox" data-brand="westside.jpg" style="width:auto"> Westside</label>'+
+                '<label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0"><input type="checkbox" data-brand="zudio.png" style="width:auto"> Zudio</label>'+
+                '<label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0"><input type="checkbox" data-brand="burnt-toast.png" style="width:auto"> Burnt Toast</label>'+
+                '</div><div class="small" style="margin-top:8px">Selected logos are embedded directly into the PPTX/PDF output. The old default brand block is removed.</div>';
+              exportCard.parentNode.insertBefore(card,exportCard);
+
+              var checks=[...card.querySelectorAll('input[data-brand]')];
+              function fileToData(blob){return new Promise(function(resolve,reject){var r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob);});}
+              function loadImage(src){return new Promise(function(resolve,reject){var img=new Image();img.onload=()=>resolve(img);img.onerror=reject;img.src=src;});}
+              async function rebuild(){
                 try{
-                  var response=await fetch('branding/'+value);
-                  if(!response.ok)throw new Error('Brand image not found: '+value);
-                  var blob=await response.blob();
-                  var dataUrl=await new Promise(function(resolve,reject){
-                    var reader=new FileReader();
-                    reader.onload=()=>resolve(reader.result);
-                    reader.onerror=reject;
-                    reader.readAsDataURL(blob);
-                  });
-                  window.__trentLogoData=dataUrl;
-                  var img=new Image();
-                  await new Promise(function(resolve,reject){img.onload=resolve;img.onerror=reject;img.src=dataUrl;});
-                  window.__trentLogoRatio=(img.naturalWidth&&img.naturalHeight)?img.naturalWidth/img.naturalHeight:1;
-                  logo=dataUrl;
-                  var file=new File([blob],value,{type:blob.type||'image/png'});
-                  var dt=new DataTransfer();
-                  dt.items.add(file);
-                  input.files=dt.files;
-                  input.dispatchEvent(new Event('change',{bubbles:true}));
-                  logo=dataUrl;
-                }catch(e){console.error('Default brand logo failed',e);}
-              };
+                  var selected=checks.filter(c=>c.checked).map(c=>c.getAttribute('data-brand'));
+                  if(!selected.length){window.__trentLogoData='';window.__trentLogoRatio=0;try{logo='';}catch(e){}return;}
+                  var imgs=[];
+                  for(var i=0;i<selected.length;i++){
+                    var response=await fetch('branding/'+selected[i]);
+                    if(!response.ok)throw new Error('Brand image not found: '+selected[i]);
+                    imgs.push(await loadImage(await fileToData(await response.blob())));
+                  }
+                  var h=220,gap=28,pad=24,total=pad*2+gap*(imgs.length-1);
+                  imgs.forEach(function(img){total+=Math.max(1,Math.round(h*img.naturalWidth/img.naturalHeight));});
+                  var c=document.createElement('canvas');c.width=total;c.height=h+pad*2;
+                  var ctx=c.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,c.width,c.height);
+                  var x=pad;
+                  imgs.forEach(function(img){var w=Math.max(1,Math.round(h*img.naturalWidth/img.naturalHeight));var y=pad+(h-h)/2;ctx.drawImage(img,x,y,w,h);x+=w+gap;});
+                  var data=c.toDataURL('image/png');
+                  window.__trentLogoData=data;window.__trentLogoRatio=c.width/c.height;try{logo=data;}catch(e){}
+                }catch(e){console.error('Selected brand logos failed',e);}
+              }
+              checks.forEach(c=>c.addEventListener('change',rebuild));
             })();
         """.trimIndent()
         webView.evaluateJavascript("javascript:$js", null)
