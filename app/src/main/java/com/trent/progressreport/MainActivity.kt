@@ -153,10 +153,10 @@ class MainActivity : AppCompatActivity() {
               var parent=input.parentElement;
               var select=document.createElement('select');
               select.id='trentDefaultLogo';
-              select.innerHTML='<option value="">Custom logo / none</option><option value="westside.svg">Westside</option><option value="burnt-toast.svg">Burnt Toast</option><option value="zudio.svg">Zudio</option>';
+              select.innerHTML='<option value="">Custom logo / none</option><option value="westside.jpg">Westside</option><option value="burnt-toast.png">Burnt Toast</option><option value="zudio.png">Zudio</option>';
               parent.insertBefore(select,input);
               var note=document.createElement('div');
-              note.textContent='Choose a default brand logo or use the custom upload below.';
+              note.textContent='Choose a default brand image or use the custom upload below.';
               note.style.margin='6px 0';
               note.style.fontSize='12px';
               parent.insertBefore(note,input);
@@ -164,17 +164,27 @@ class MainActivity : AppCompatActivity() {
                 var value=this.value;
                 if(!value){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; try{logo='';}catch(e){} return; }
                 try{
-                  var text=await(await fetch('branding/'+value)).text();
-                  var dataUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(text)));
+                  var response=await fetch('branding/'+value);
+                  if(!response.ok)throw new Error('Brand image not found: '+value);
+                  var blob=await response.blob();
+                  var dataUrl=await new Promise(function(resolve,reject){
+                    var reader=new FileReader();
+                    reader.onload=()=>resolve(reader.result);
+                    reader.onerror=reject;
+                    reader.readAsDataURL(blob);
+                  });
                   window.__trentLogoData=dataUrl;
-                  window.__trentLogoRatio=1;
-                  try{logo=dataUrl;}catch(e){}
-                  var blob=new Blob([text],{type:'image/svg+xml'});
-                  var file=new File([blob],value,{type:'image/svg+xml'});
-                  var dt=new DataTransfer(); dt.items.add(file); input.files=dt.files;
+                  var img=new Image();
+                  await new Promise(function(resolve,reject){img.onload=resolve;img.onerror=reject;img.src=dataUrl;});
+                  window.__trentLogoRatio=(img.naturalWidth&&img.naturalHeight)?img.naturalWidth/img.naturalHeight:1;
+                  logo=dataUrl;
+                  var file=new File([blob],value,{type:blob.type||'image/png'});
+                  var dt=new DataTransfer();
+                  dt.items.add(file);
+                  input.files=dt.files;
                   input.dispatchEvent(new Event('change',{bubbles:true}));
-                  try{logo=dataUrl;}catch(e){}
-                }catch(e){console.error(e);}
+                  logo=dataUrl;
+                }catch(e){console.error('Default brand logo failed',e);}
               };
             })();
         """.trimIndent()
