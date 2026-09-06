@@ -52,9 +52,7 @@ class MainActivity : AppCompatActivity() {
                 if (params.isCaptureEnabled && imageIntent) {
                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                         ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
-                    } else {
-                        launchCamera()
-                    }
+                    } else launchCamera()
                     return true
                 }
                 cameraUri = null
@@ -76,9 +74,7 @@ class MainActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             clipData = ClipData.newRawUri("output", cameraUri)
         }
-        try {
-            startActivityForResult(intent, fileChooserRequest)
-        } catch (e: Exception) {
+        try { startActivityForResult(intent, fileChooserRequest) } catch (e: Exception) {
             filePathCallback?.onReceiveValue(null)
             filePathCallback = null
             cameraUri = null
@@ -88,12 +84,8 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == cameraPermissionRequest) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                launchCamera()
-            } else {
-                filePathCallback?.onReceiveValue(null)
-                filePathCallback = null
-            }
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) launchCamera()
+            else { filePathCallback?.onReceiveValue(null); filePathCallback = null }
         }
     }
 
@@ -170,13 +162,7 @@ class MainActivity : AppCompatActivity() {
               parent.insertBefore(note,input);
               select.onchange=async function(){
                 var value=this.value;
-                if(!value){
-                  input.value='';
-                  window.__trentLogoData='';
-                  window.__trentLogoRatio=0;
-                  try{logo='';}catch(e){}
-                  return;
-                }
+                if(!value){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; try{logo='';}catch(e){} return; }
                 try{
                   var text=await(await fetch('branding/'+value)).text();
                   var dataUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(text)));
@@ -185,9 +171,7 @@ class MainActivity : AppCompatActivity() {
                   try{logo=dataUrl;}catch(e){}
                   var blob=new Blob([text],{type:'image/svg+xml'});
                   var file=new File([blob],value,{type:'image/svg+xml'});
-                  var dt=new DataTransfer();
-                  dt.items.add(file);
-                  input.files=dt.files;
+                  var dt=new DataTransfer(); dt.items.add(file); input.files=dt.files;
                   input.dispatchEvent(new Event('change',{bubbles:true}));
                   try{logo=dataUrl;}catch(e){}
                 }catch(e){console.error(e);}
@@ -208,24 +192,15 @@ class MainActivity : AppCompatActivity() {
             }
             val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
             contentResolver.openOutputStream(uri)?.use { it.write(data) }
-            values.clear()
-            values.put(MediaStore.Downloads.IS_PENDING, 0)
-            contentResolver.update(uri, values, null, null)
+            values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0); contentResolver.update(uri, values, null, null)
         }
-
         @android.webkit.JavascriptInterface
         fun shareFile(fileName: String, mimeType: String, base64Data: String) {
-            val dir = File(cacheDir, "shared")
-            if (!dir.exists()) dir.mkdirs()
-            val file = File(dir, fileName)
-            FileOutputStream(file).use { it.write(android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)) }
-            val uri = FileProvider.getUriForFile(this@MainActivity, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "Share report"))
+            val dir=File(cacheDir,"shared"); if(!dir.exists())dir.mkdirs(); val file=File(dir,fileName)
+            FileOutputStream(file).use{it.write(android.util.Base64.decode(base64Data,android.util.Base64.DEFAULT))}
+            val uri=FileProvider.getUriForFile(this@MainActivity,"${BuildConfig.APPLICATION_ID}.fileprovider",file)
+            val intent=Intent(Intent.ACTION_SEND).apply{type=mimeType;putExtra(Intent.EXTRA_STREAM,uri);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+            startActivity(Intent.createChooser(intent,"Share report"))
         }
     }
 }
