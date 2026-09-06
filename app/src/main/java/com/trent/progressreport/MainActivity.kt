@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
         val dir = File(cacheDir, "shared")
         if (!dir.exists()) dir.mkdirs()
         val photoFile = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-        cameraUri = FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.fileprovider", photoFile)
+        cameraUri = FileProvider.getUriForFile(this, "com.trent.progressreport.fileprovider", photoFile)
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
             putExtra(MediaStore.EXTRA_OUTPUT, cameraUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -198,7 +198,7 @@ class MainActivity : AppCompatActivity() {
         fun shareFile(fileName: String, mimeType: String, base64Data: String) {
             val dir=File(cacheDir,"shared"); if(!dir.exists())dir.mkdirs(); val file=File(dir,fileName)
             FileOutputStream(file).use{it.write(android.util.Base64.decode(base64Data,android.util.Base64.DEFAULT))}
-            val uri=FileProvider.getUriForFile(this@MainActivity,"${BuildConfig.APPLICATION_ID}.fileprovider",file)
+            val uri=FileProvider.getUriForFile(this@MainActivity,"com.trent.progressreport.fileprovider",file)
             val intent=Intent(Intent.ACTION_SEND).apply{type=mimeType;putExtra(Intent.EXTRA_STREAM,uri);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)}
             startActivity(Intent.createChooser(intent,"Share report"))
         }
