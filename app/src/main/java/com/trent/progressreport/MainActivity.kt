@@ -20,6 +20,7 @@ import java.util.Base64
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private var chooser: ValueCallback<Array<Uri>>? = null
+    private var cameraUri: Uri? = null
     private val REQ = 77
 
     override fun onCreate(state: Bundle?) {
@@ -39,20 +40,39 @@ class MainActivity : AppCompatActivity() {
             override fun onShowFileChooser(v: WebView?, cb: ValueCallback<Array<Uri>>?, p: FileChooserParams?): Boolean {
                 chooser?.onReceiveValue(null)
                 chooser = cb
+                cameraUri = null
                 return try {
                     val params = p ?: throw IllegalArgumentException("Missing chooser parameters")
-                    val intent = if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = params.acceptTypes.firstOrNull { it.isNotBlank() } ?: "image/*"
-                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                    val accepts = params.acceptTypes.flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotBlank() }
+                    val wantsImage = accepts.any { it.startsWith("image/") } || accepts.isEmpty()
+
+                    if (params.isCaptureEnabled && wantsImage && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        val dir = File(cacheDir, "shared")
+                        dir.mkdirs()
+                        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+                        cameraUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+                        val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                            putExtra(MediaStore.EXTRA_OUTPUT, cameraUri)
+                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = android.content.ClipData.newRawUri("camera", cameraUri)
                         }
-                    } else params.createIntent()
-                    startActivityForResult(intent, REQ)
+                        if (cameraIntent.resolveActivity(packageManager) == null) throw ActivityNotFoundException("No camera app found")
+                        startActivityForResult(cameraIntent, REQ)
+                    } else {
+                        val intent = if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = accepts.firstOrNull { it.isNotBlank() } ?: "image/*"
+                                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                            }
+                        } else params.createIntent()
+                        startActivityForResult(intent, REQ)
+                    }
                     true
                 } catch (_: Exception) {
                     chooser = null
+                    cameraUri = null
                     false
                 }
             }
@@ -179,16 +199,22 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ) return
-        val uris = if (resultCode == RESULT_OK && data != null) {
+        val uris = if (resultCode == RESULT_OK) {
             val list = ArrayList<Uri>()
-            data.clipData?.let { clip ->
-                for (i in 0 until clip.itemCount) list.add(clip.getItemAt(i).uri)
+            cameraUri?.let { uri ->
+                if (File(uri.path ?: "").exists() || contentResolver.getType(uri)?.startsWith("image/") == true) list.add(uri)
             }
-            if (list.isEmpty()) data.data?.let { list.add(it) }
+            if (list.isEmpty() && data != null) {
+                data.clipData?.let { clip ->
+                    for (i in 0 until clip.itemCount) list.add(clip.getItemAt(i).uri)
+                }
+                if (list.isEmpty()) data.data?.let { list.add(it) }
+            }
             if (list.isNotEmpty()) list.toTypedArray() else null
         } else null
         chooser?.onReceiveValue(uris)
         chooser = null
+        cameraUri = null
     }
 
     inner class AndroidBridge {
