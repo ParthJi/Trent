@@ -1,0 +1,7 @@
+<resources>
+<style name="Theme.TrentProgressReport" parent="Theme.AppCompat.Light.NoActionBar">
+    <item name="android:fontFamily">sans</item><item name="android:colorAccent">#E39A2F</item>
+    <item name="android:navigationBarColor">#18212B</item><item name="android:statusBarColor">#18212B</item>
+    <item name="android:windowLightStatusBar">false</item>
+</style>
+</resources>
