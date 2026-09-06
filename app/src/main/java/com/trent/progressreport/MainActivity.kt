@@ -52,7 +52,9 @@ class MainActivity : AppCompatActivity() {
                 if (params.isCaptureEnabled && imageIntent) {
                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                         ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
-                    } else launchCamera()
+                    } else {
+                        launchCamera()
+                    }
                     return true
                 }
                 cameraUri = null
@@ -74,16 +76,24 @@ class MainActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             clipData = ClipData.newRawUri("output", cameraUri)
         }
-        try { startActivityForResult(intent, fileChooserRequest) } catch (e: Exception) {
-            filePathCallback?.onReceiveValue(null); filePathCallback = null; cameraUri = null
+        try {
+            startActivityForResult(intent, fileChooserRequest)
+        } catch (e: Exception) {
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = null
+            cameraUri = null
         }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == cameraPermissionRequest) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) launchCamera()
-            else { filePathCallback?.onReceiveValue(null); filePathCallback = null }
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                launchCamera()
+            } else {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+            }
         }
     }
 
@@ -92,7 +102,11 @@ class MainActivity : AppCompatActivity() {
         if (requestCode != fileChooserRequest) return
         val callback = filePathCallback ?: return
         filePathCallback = null
-        if (resultCode != Activity.RESULT_OK) { callback.onReceiveValue(null); cameraUri = null; return }
+        if (resultCode != Activity.RESULT_OK) {
+            callback.onReceiveValue(null)
+            cameraUri = null
+            return
+        }
         val clip = data?.clipData
         val result: Array<Uri>? = when {
             cameraUri != null -> arrayOf(cameraUri!!)
