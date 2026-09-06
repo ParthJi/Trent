@@ -1,277 +1,247 @@
 package com.trent.progressreport
 
 import android.Manifest
-import android.app.*
-import android.content.*
+import android.app.Activity
+import android.content.ClipData
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.*
+import android.os.Bundle
 import android.provider.MediaStore
-import android.webkit.*
-import android.widget.Toast
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Base64
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var web: WebView
-    private var chooser: ValueCallback<Array<Uri>>? = null
+    private lateinit var webView: WebView
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraUri: Uri? = null
-    private val REQ = 77
+    private val fileChooserRequest = 1001
+    private val cameraPermissionRequest = 1002
 
-    override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
-        web = WebView(this)
-        setContentView(web)
-        requestRuntimePermissions()
-        WebView.setWebContentsDebuggingEnabled(false)
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.settings.allowFileAccess = true
-        web.settings.allowContentAccess = true
-        web.settings.mediaPlaybackRequiresUserGesture = false
-        web.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        web.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(v: WebView?, cb: ValueCallback<Array<Uri>>?, p: FileChooserParams?): Boolean {
-                chooser?.onReceiveValue(null)
-                chooser = cb
-                cameraUri = null
-                return try {
-                    val params = p ?: throw IllegalArgumentException("Missing chooser parameters")
-                    val accepts = params.acceptTypes.flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotBlank() }
-                    val wantsImage = accepts.any { it.startsWith("image/") } || accepts.isEmpty()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        webView = WebView(this)
+        setContentView(webView)
 
-                    if (params.isCaptureEnabled && wantsImage && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        val dir = File(cacheDir, "shared")
-                        dir.mkdirs()
-                        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-                        cameraUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
-                        val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                            putExtra(MediaStore.EXTRA_OUTPUT, cameraUri)
-                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            clipData = android.content.ClipData.newRawUri("camera", cameraUri)
-                        }
-                        if (cameraIntent.resolveActivity(packageManager) == null) throw ActivityNotFoundException("No camera app found")
-                        startActivityForResult(cameraIntent, REQ)
-                    } else {
-                        val intent = if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = accepts.firstOrNull { it.isNotBlank() } ?: "image/*"
-                                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                            }
-                        } else params.createIntent()
-                        startActivityForResult(intent, REQ)
-                    }
-                    true
-                } catch (_: Exception) {
-                    chooser = null
-                    cameraUri = null
-                    false
-                }
-            }
-            override fun onPermissionRequest(request: PermissionRequest) {
-                runOnUiThread { request.grant(request.resources) }
-            }
-        }
-        web.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                return !(request.url.scheme == "http" || request.url.scheme == "https")
-            }
+        webView.settings.javaScriptEnabled = true
+        webView.settings.domStorageEnabled = true
+        webView.settings.allowFileAccess = true
+        webView.settings.allowContentAccess = true
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 installLogoAspectRatioFix()
                 installDefaultBrandLogos()
             }
         }
-        web.loadUrl("file:///android_asset/index.html")
-    }
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                params: FileChooserParams
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
 
-    private fun installLogoAspectRatioFix() {
-        val js = """
-        (function(){
-          function wrapSlide(slide){
-            if(!slide || slide.__trentLogoWrapped) return slide;
-            const originalAddImage=slide.addImage;
-            if(typeof originalAddImage!==\"function\") return slide;
-            slide.addImage=function(opts){
-              try{
-                if(window.__trentLogoData && opts && opts.data===window.__trentLogoData && window.__trentLogoRatio){
-                  const bw=Number(opts.w)||1, bh=Number(opts.h)||1, boxRatio=bw/bh, r=window.__trentLogoRatio;
-                  let w,h;
-                  if(r>boxRatio){ w=bw; h=bw/r; } else { h=bh; w=bh*r; }
-                  opts=Object.assign({},opts,{x:Number(opts.x||0)+(bw-w)/2,y:Number(opts.y||0)+(bh-h)/2,w:w,h:h});
+                val accepts = params.acceptTypes.flatMap { it.split(",") }
+                    .map { it.trim().lowercase() }
+                    .filter { it.isNotEmpty() }
+                val imageIntent = accepts.isEmpty() || accepts.any { it.startsWith("image/") || it == "*/*" }
+                val capture = params.isCaptureEnabled && imageIntent
+
+                if (capture) {
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
+                        return true
+                    }
+                    launchCamera()
+                    return true
                 }
-              }catch(e){}
-              return originalAddImage.call(this,opts);
-            };
-            slide.__trentLogoWrapped=true;
-            return slide;
-          }
-          if(window.PptxGenJS && !window.__trentPptPatched){
-            const originalAddSlide=window.PptxGenJS.prototype.addSlide;
-            window.PptxGenJS.prototype.addSlide=function(){ return wrapSlide(originalAddSlide.apply(this,arguments)); };
-            window.__trentPptPatched=true;
-          }
-          const input=document.getElementById(\"logoInput\");
-          if(input && !input.__trentLogoListener){
-            input.addEventListener(\"change\",function(e){
-              const f=e.target.files && e.target.files[0]; if(!f) return;
-              const reader=new FileReader();
-              reader.onload=function(){
-                window.__trentLogoData=reader.result;
-                const im=new Image();
-                im.onload=function(){ if(im.naturalWidth && im.naturalHeight) window.__trentLogoRatio=im.naturalWidth/im.naturalHeight; };
-                im.src=reader.result;
-              };
-              reader.readAsDataURL(f);
-            });
-            input.__trentLogoListener=true;
-          }
-        })();
-        """.trimIndent()
-        web.evaluateJavascript(js, null)
-    }
 
-    private fun installDefaultBrandLogos() {
-        val js = """
-        (function(){
-          const input=document.getElementById('logoInput');
-          if(!input || input.__trentBrandSelectorInstalled) return;
-          input.__trentBrandSelectorInstalled=true;
-          const wrap=input.parentElement;
-          if(!wrap) return;
-          const label=wrap.querySelector('label');
-          const select=document.createElement('select');
-          select.id='defaultBrandLogo';
-          select.innerHTML='<option value="">Custom logo / none</option><option value="westside">Westside</option><option value="burnt-toast">Burnt Toast</option><option value="zudio">Zudio</option>';
-          select.style.marginBottom='9px';
-          if(label) wrap.insertBefore(select,label.nextSibling); else wrap.insertBefore(select,input);
-          const note=document.createElement('div');
-          note.textContent='Choose a default brand logo or use the custom upload below.';
-          note.style.cssText='font-size:10px;color:#69727d;margin:-3px 0 8px;line-height:1.4';
-          wrap.insertBefore(note,input);
-          async function setLogo(path,name){
-            try{
-              const res=await fetch(path);
-              const text=await res.text();
-              const file=new File([text],name+'.svg',{type:'image/svg+xml'});
-              const dt=new DataTransfer();
-              dt.items.add(file);
-              input.files=dt.files;
-              const encoded=btoa(unescape(encodeURIComponent(text)));
-              const dataUrl='data:image/svg+xml;base64,'+encoded;
-              window.__trentLogoData=dataUrl;
-              window.__trentLogoRatio=1;
-              try { logo=dataUrl; } catch(e) {}
-              input.dispatchEvent(new Event('change',{bubbles:true}));
-            }catch(e){ console.warn('Brand logo load failed',e); }
-          }
-          select.addEventListener('change',function(){
-            const v=select.value;
-            if(!v){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; try { logo=''; } catch(e) {} return; }
-            setLogo('file:///android_asset/branding/'+v+'.svg',v);
-          });
-          input.addEventListener('change',function(){
-            if(input.files && input.files.length) {
-              const f=input.files[0];
-              if(f.name!=='westside.svg' && f.name!=='burnt-toast.svg' && f.name!=='zudio.svg') select.value='';
+                cameraUri = null
+                startActivityForResult(params.createIntent(), fileChooserRequest)
+                return true
             }
-          });
-        })();
-        """.trimIndent()
-        web.evaluateJavascript(js, null)
+        }
+
+        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+        webView.loadUrl("file:///android_asset/index.html")
     }
 
-    private fun requestRuntimePermissions() {
-        val list = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 33) {
-            list += Manifest.permission.READ_MEDIA_IMAGES
-            list += Manifest.permission.READ_MEDIA_VIDEO
+    private fun launchCamera() {
+        val dir = File(cacheDir, "shared")
+        if (!dir.exists()) dir.mkdirs()
+        val photoFile = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+        cameraUri = FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.fileprovider", photoFile)
+
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, cameraUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            clipData = ClipData.newRawUri("output", cameraUri)
         }
-        if (Build.VERSION.SDK_INT >= 23 && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            list += Manifest.permission.CAMERA
+        try {
+            startActivityForResult(intent, fileChooserRequest)
+        } catch (e: Exception) {
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = null
+            cameraUri = null
         }
-        if (list.isNotEmpty()) ActivityCompat.requestPermissions(this, list.toTypedArray(), 9)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == cameraPermissionRequest) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                launchCamera()
+            } else {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ) return
-        val uris = if (resultCode == RESULT_OK) {
-            val list = ArrayList<Uri>()
-            cameraUri?.let { uri ->
-                if (File(uri.path ?: "").exists() || contentResolver.getType(uri)?.startsWith("image/") == true) list.add(uri)
-            }
-            if (list.isEmpty() && data != null) {
-                data.clipData?.let { clip ->
-                    for (i in 0 until clip.itemCount) list.add(clip.itemAt(i).uri)
-                }
-                if (list.isEmpty()) data.data?.let { list.add(it) }
-            }
-            if (list.isNotEmpty()) list.toTypedArray() else null
-        } else null
-        chooser?.onReceiveValue(uris)
-        chooser = null
+        if (requestCode != fileChooserRequest) return
+
+        val callback = filePathCallback ?: return
+        filePathCallback = null
+
+        if (resultCode != Activity.RESULT_OK) {
+            callback.onReceiveValue(null)
+            cameraUri = null
+            return
+        }
+
+        val result: Array<Uri>? = when {
+            cameraUri != null -> arrayOf(cameraUri!!)
+            data?.clipData != null -> Array(data.clipData!!.itemCount) { i -> data.clipData!!.getItemAt(i).uri }
+            data?.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+        callback.onReceiveValue(result)
         cameraUri = null
     }
 
+    private fun installLogoAspectRatioFix() {
+        val js = """
+            (function(){
+              if(window.__trentLogoAspectFixInstalled)return;
+              window.__trentLogoAspectFixInstalled=true;
+              function install(){
+                try{
+                  if(typeof PptxGenJS==='undefined')return;
+                  var oldAddSlide=PptxGenJS.prototype.addSlide;
+                  PptxGenJS.prototype.addSlide=function(){
+                    var sl=oldAddSlide.apply(this,arguments);
+                    var oldAddImage=sl.addImage;
+                    sl.addImage=function(opts){
+                      try{
+                        if(opts && window.__trentLogoData && opts.data===window.__trentLogoData && window.__trentLogoRatio){
+                          var maxW=opts.w||1, maxH=opts.h||1;
+                          if(window.__trentLogoRatio>maxW/maxH){ opts.h=maxW/window.__trentLogoRatio; }
+                          else { opts.w=maxH*window.__trentLogoRatio; }
+                        }
+                      }catch(e){}
+                      return oldAddImage.call(this,opts);
+                    };
+                    return sl;
+                  };
+                }catch(e){}
+              }
+              install();
+              document.addEventListener('DOMContentLoaded',install);
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript("javascript:$js", null)
+    }
+
+    private fun installDefaultBrandLogos() {
+        val js = """
+            (function(){
+              if(window.__trentDefaultLogoSelectorInstalled)return;
+              window.__trentDefaultLogoSelectorInstalled=true;
+              var section=document.getElementById('logoInput');
+              if(!section)return;
+              var parent=section.parentElement;
+              var select=document.createElement('select');
+              select.id='trentDefaultLogo';
+              select.innerHTML='<option value="">Custom logo / none</option><option value="westside.svg">Westside</option><option value="burnt-toast.svg">Burnt Toast</option><option value="zudio.svg">Zudio</option>';
+              var note=document.createElement('div');
+              note.textContent='Choose a default brand logo or use the custom upload below.';
+              note.style.margin='6px 0';
+              note.style.fontSize='12px';
+              parent.insertBefore(select,section);
+              parent.insertBefore(note,section);
+              select.onchange=async function(){
+                var v=this.value;
+                if(!v){
+                  section.value='';
+                  window.__trentLogoData='';
+                  window.__trentLogoRatio=0;
+                  try{logo='';}catch(e){}
+                  return;
+                }
+                try{
+                  var text=await (await fetch('branding/'+v)).text();
+                  var encoded=btoa(unescape(encodeURIComponent(text)));
+                  var dataUrl='data:image/svg+xml;base64,'+encoded;
+                  window.__trentLogoData=dataUrl;
+                  window.__trentLogoRatio=1;
+                  try{logo=dataUrl;}catch(e){}
+                  var blob=new Blob([text],{type:'image/svg+xml'});
+                  var file=new File([blob],v,{type:'image/svg+xml'});
+                  var dt=new DataTransfer();
+                  dt.items.add(file);
+                  section.files=dt.files;
+                  section.dispatchEvent(new Event('change',{bubbles:true}));
+                  try{logo=dataUrl;}catch(e){}
+                }catch(e){console.error(e)}
+              };
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript("javascript:$js", null)
+    }
+
     inner class AndroidBridge {
-        @JavascriptInterface fun saveFile(name: String, mime: String, base64: String) {
-            try {
-                val bytes = Base64.getDecoder().decode(base64)
-                val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                if (Build.VERSION.SDK_INT >= 29) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, safe)
-                        put(MediaStore.Downloads.MIME_TYPE, mime)
-                        put(MediaStore.Downloads.IS_PENDING, 1)
-                    }
-                    val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw Exception("Downloads unavailable")
-                    contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
-                    values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
-                    contentResolver.update(uri, values, null, null)
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Saved to Downloads/$safe", Toast.LENGTH_LONG).show() }
-                } else {
-                    val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)!!
-                    dir.mkdirs()
-                    FileOutputStream(File(dir, safe)).use { it.write(bytes) }
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Saved to app Downloads/$safe", Toast.LENGTH_LONG).show() }
-                }
-                cacheForShare(safe, mime, bytes)
-            } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Export failed: ${e.message}", Toast.LENGTH_LONG).show() }
+        @android.webkit.JavascriptInterface
+        fun saveFile(fileName: String, mimeType: String, base64Data: String) {
+            val data = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+            contentResolver.openOutputStream(uri)?.use { it.write(data) }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
         }
 
-        @JavascriptInterface fun shareFile(name: String, mime: String, base64: String) {
-            try {
-                val bytes = Base64.getDecoder().decode(base64)
-                val file = cacheForShare(name, mime, bytes)
-                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
-                val i = Intent(Intent.ACTION_SEND).apply {
-                    type = mime
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(Intent.createChooser(i, "Share report"))
-            } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Share failed: ${e.message}", Toast.LENGTH_LONG).show() }
-            }
-        }
-
-        private fun cacheForShare(name: String, mime: String, bytes: ByteArray): File {
+        @android.webkit.JavascriptInterface
+        fun shareFile(fileName: String, mimeType: String, base64Data: String) {
             val dir = File(cacheDir, "shared")
-            dir.mkdirs()
-            val f = File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_"))
-            FileOutputStream(f).use { it.write(bytes) }
-            return f
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, fileName)
+            FileOutputStream(file).use { it.write(android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)) }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share report"))
         }
     }
 }
