@@ -165,12 +165,17 @@ class MainActivity : AppCompatActivity() {
               const dt=new DataTransfer();
               dt.items.add(file);
               input.files=dt.files;
+              const encoded=btoa(unescape(encodeURIComponent(text)));
+              const dataUrl='data:image/svg+xml;base64,'+encoded;
+              window.__trentLogoData=dataUrl;
+              window.__trentLogoRatio=1;
+              try { logo=dataUrl; } catch(e) {}
               input.dispatchEvent(new Event('change',{bubbles:true}));
             }catch(e){ console.warn('Brand logo load failed',e); }
           }
           select.addEventListener('change',function(){
             const v=select.value;
-            if(!v){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; return; }
+            if(!v){ input.value=''; window.__trentLogoData=''; window.__trentLogoRatio=0; try { logo=''; } catch(e) {} return; }
             setLogo('file:///android_asset/branding/'+v+'.svg',v);
           });
           input.addEventListener('change',function(){
@@ -206,7 +211,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (list.isEmpty() && data != null) {
                 data.clipData?.let { clip ->
-                    for (i in 0 until clip.itemCount) list.add(clip.getItemAt(i).uri)
+                    for (i in 0 until clip.itemCount) list.add(clip.itemAt(i).uri)
                 }
                 if (list.isEmpty()) data.data?.let { list.add(it) }
             }
